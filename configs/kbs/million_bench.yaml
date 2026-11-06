@@ -1,0 +1,65 @@
+kb_id: kb-million-bench-001
+kb_code: million_bench
+name: 真实百万段落测试库
+description: MS MARCO v1 英文真实语料独立测试库
+# 百万段落压测专用库：不进前端问答下拉（仍可用 resolve 直接跑 benchmark 脚本）
+enabled: false
+tenant_id: default
+chunking:
+  size: 1024
+  overlap: 0
+  min_chunk_len: 1
+  structure_aware: true
+  parent_child: false
+  parent_max_chars: 1500
+embedding:
+  model: null
+  dim: null
+retrieval:
+  top_k: 50
+  rerank_top_n: 10
+  rrf_k: 60
+  vector_weight: 0.5
+  bm25_weight: 0.5
+  use_query_rewrite: false
+  use_rerank: false
+  adaptive_top_k: false
+  top_k_min: 5
+  top_k_max: 40
+  score_cliff_ratio: 0.0
+  mmr_lambda: 1.0
+  graph_rerank_enabled: false
+  graph_rerank_boost: 0.5
+  parent_max_chars: 2000
+  parent_context_max_chars: 8000
+doc_acl_enabled: false
+connectors: []
+structured:
+  enabled: false
+  sql_url: ''
+  allowed_tables: []
+  default_schema: ''
+  max_rows: 100
+  timeout_s: 5.0
+  use_llm_planner: true
+  field_descriptions: {}
+  metric_definitions: {}
+api:
+  enabled: false
+  endpoints: []
+  max_chars: 4000
+  max_response_bytes: 1000000
+  allowed_content_types:
+  - application/json
+  - text/
+  min_match_score: 1
+  allow_private_hosts: false
+agentic:
+  enabled: false
+  use_llm_planner: true
+  max_rounds: 3
+  max_sub_queries: 3
+  max_evidence_chunks: 20
+  min_evidence_chunks: 3
+  max_tool_calls: 8
+  deadline_ms: 30000

@@ -1,0 +1,155 @@
+# 本地开发依赖：Milvus(standalone) + etcd + SeaweedFS(S3) + Elasticsearch + Redis + PostgreSQL
+# 启动：docker compose -f docker-compose.dev.yml up -d
+# 注意（Linux）：Elasticsearch 需要 sudo sysctl -w vm.max_map_count=262144
+# 说明：部分镜像仓库对 minio/minio 返回 denied，本地开发改用 S3 兼容的 SeaweedFS；
+#       生产环境仍建议替换为 MinIO（只需改 S3_ENDPOINT_URL 与访问密钥）。
+# Celery worker 不入 compose，本地手动启动（Windows 必须 --pool=solo）：
+#   celery -A app.tasks.celery_app worker --pool=solo --loglevel=info
+name: rag-dev
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    container_name: rag-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - etcd_data:/etcd
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: rag-s3
+    command: server -s3 -s3.port=8333 -dir=/data
+    ports:
+      - "8333:8333"
+    volumes:
+      - seaweed_data:/data
+
+  milvus:
+    image: milvusdb/milvus:v2.4.9
+    container_name: rag-milvus
+    command: ["milvus", "run", "standalone"]
+    restart: on-failure
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: seaweedfs:8333
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    depends_on:
+      etcd:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    volumes:
+      - milvus_data:/var/lib/milvus
+
+  elasticsearch:
+    # Docker Hub 官方镜像，与 docker.elastic.co 版本一致
+    image: elasticsearch:8.13.4
+    container_name: rag-es
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - redis_data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-postgres
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+      POSTGRES_DB: rag
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  # 企业 SSO 联调（AUTH_MODE=oidc）：realm/client/用户/组由 scripts/bootstrap_keycloak.py 幂等配置
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: rag-keycloak
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "8080"
+      KC_HEALTH_ENABLED: "true"
+      # 固定 issuer 为 http://localhost:8080，与 .env 的 OIDC_ISSUER 对齐
+      KC_HOSTNAME: http://localhost:8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+
+  # 企业目录联调（AUTH_MODE=ldap）：ou/用户/组由 scripts/bootstrap_ldap.py 幂等写入
+  # admin 凭证：cn=admin,dc=rag,dc=local / admin
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: rag-openldap
+    environment:
+      LDAP_ORGANISATION: "RAG"
+      LDAP_DOMAIN: "rag.local"
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_TLS: "false"
+    ports:
+      - "389:389"
+    volumes:
+      - openldap_data:/var/lib/ldap
+      - openldap_config:/etc/ldap/slapd.d
+
+volumes:
+  etcd_data:
+  seaweed_data:
+  milvus_data:
+  es_data:
+  redis_data:
+  pg_data:
+  keycloak_data:
+  openldap_data:
+  openldap_config:

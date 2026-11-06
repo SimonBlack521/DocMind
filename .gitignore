@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 测试与检查缓存
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# IDE / 操作系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Trae 本地 MCP 配置（可能含令牌）
+.trae/mcp.json
+
+# 日志与运行产物
+logs/
+*.log
+
+# 本地数据与卷
+data/
+volumes/
+*.db
+*.sqlite3
+
+# 模型与缓存
+.cache/
+models/
+
+# Celery Beat 本地调度数据库
+celerybeat-schedule.*
+
+# 本地截图/临时文件
+.screenshots/
+
+# 测试产物与临时打包
+RAG_Real_Million_Test/
+RAG_Real_Million_Test.zip
+Rag_System_src.zip
+Rag_System_src_clean.tar.gz
+
+# Trae 完整本地配置（含工作区缓存）
+.trae/
+
+# 自定义 supervisord / systemd 运维文件（部署时按需复制）
+supervisord/

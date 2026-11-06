@@ -1,0 +1,53 @@
+# RAG Beat：Celery Beat —— 周期任务调度（Outbox 补投、索引对账、删除重试、过期清理）
+#
+# 与 API/Worker 共享同一镜像，仅启动命令不同。
+# 重要：Beat 全集群只能运行 1 个副本（Celery Beat 不支持多副本去重，
+# 多实例会导致周期任务被重复派发）。
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-beat
+  namespace: rag
+  labels:
+    app: rag-beat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-beat
+  template:
+    metadata:
+      labels:
+        app: rag-beat
+    spec:
+      containers:
+        - name: beat
+          image: enterprise-rag:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "celery"]
+          args: [
+              "-A", "app.tasks.celery_app.celery_app",
+              "beat",
+              "--loglevel", "INFO",
+            ]
+          envFrom:
+            - configMapRef:
+                name: rag-config
+            - secretRef:
+                name: rag-secrets
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import app.tasks.celery_app as m; print('ok')"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

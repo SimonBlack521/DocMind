@@ -1,0 +1,75 @@
+# RAG Worker：Celery —— 执行文档解析/切块/向量化的异步任务
+#
+# 与 API 共享同一镜像，但启动命令不同。Worker 是 CPU 密集 + IO 密集混合，
+# replicas 根据入库吞吐调。
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-worker
+  namespace: rag
+  labels:
+    app: rag-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rag-worker
+  template:
+    metadata:
+      labels:
+        app: rag-worker
+    spec:
+      containers:
+        - name: worker
+          image: enterprise-rag:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "celery"]
+          args: [
+              "-A", "app.tasks.celery_app.celery_app",
+              "worker",
+              "--concurrency", "4",
+              "--loglevel", "INFO",
+            ]
+          envFrom:
+            - configMapRef:
+                name: rag-config
+            - secretRef:
+                name: rag-secrets
+          # Worker 无 HTTP 端口，用 exec 探针 —— celery inspect 健康检查
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import app.tasks.celery_app as m; print('ok')"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+---
+# HPA：根据 CPU 自动扩缩 worker（入库高峰期 QPS 上来时自动增实例）
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag-worker-hpa
+  namespace: rag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

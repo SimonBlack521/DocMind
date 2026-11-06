@@ -1,0 +1,248 @@
+# 生产部署骨架：docker compose -f docker-compose.prod.yml up -d --build
+#
+# 说明：
+# - 单机 compose 版本，适合私有化小规模部署；大规模请把 Milvus/ES/PG/Redis/S3 换成托管服务，
+#   只保留 api / worker 两个容器并改写下方 DATABASE_URL 等连接串；
+# - 所有密钥与外部模型地址通过环境变量注入（compose 会自动读取同目录 .env 做插值），
+#   不要在镜像里固化密钥；
+# - 知识库 YAML 目录以卷挂载，API 的运行时建库/改库会写这里，宿主机目录需对容器用户（uid 10001）可写：
+#   chown -R 10001:10001 configs/kbs
+# - AUTH_MODE 生产必须为 oidc 或 ldap，并补齐对应 IdP 参数；dev 仅供本地调试。
+name: rag-prod
+
+x-app-env: &app-env
+  # 固定 prod，避免宿主机残留的 dev .env 把环境降级；AUTH_MODE=dev 会被 Settings 拒绝
+  APP_ENV: "prod"
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_DIR: /srv/rag/logs
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+  AUTH_MODE: ${AUTH_MODE:-oidc}
+  OIDC_ISSUER: ${OIDC_ISSUER:-}
+  OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+  OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+  OIDC_TENANT_CLAIM: ${OIDC_TENANT_CLAIM:-tenant_id}
+  OIDC_KB_CLAIM: ${OIDC_KB_CLAIM:-allowed_kb_ids}
+  OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM:-groups}
+  LDAP_SERVER_URL: ${LDAP_SERVER_URL:-}
+  LDAP_USER_SEARCH_BASE: ${LDAP_USER_SEARCH_BASE:-}
+  LDAP_BIND_DN: ${LDAP_BIND_DN:-}
+  LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+  LDAP_GROUP_SEARCH_BASE: ${LDAP_GROUP_SEARCH_BASE:-}
+  LDAP_GROUP_KB_MAP: ${LDAP_GROUP_KB_MAP:-}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://rag:rag@postgres:5432/rag}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CELERY_EAGER: "false"
+  RETRIEVAL_CACHE_TTL_S: ${RETRIEVAL_CACHE_TTL_S:-300}
+  MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
+  MILVUS_TOKEN: ${MILVUS_TOKEN:-}
+  MILVUS_DB_NAME: ${MILVUS_DB_NAME:-default}
+  ES_URL: ${ES_URL:-http://elasticsearch:9200}
+  ES_USERNAME: ${ES_USERNAME:-}
+  ES_PASSWORD: ${ES_PASSWORD:-}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://seaweedfs:8333}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+  S3_BUCKET: ${S3_BUCKET:-rag-raw}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_USE_SSL: ${S3_USE_SSL:-false}
+  KB_CONFIG_DIR: /srv/rag/configs/kbs
+  DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default}
+  KB_ADMIN_GROUP: ${KB_ADMIN_GROUP:-}
+  EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-remote}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+  EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+  EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-}
+  EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+  EMBEDDING_TIMEOUT_S: ${EMBEDDING_TIMEOUT_S:-30}
+  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+  RERANK_BACKEND: ${RERANK_BACKEND:-none}
+  RERANK_MODEL: ${RERANK_MODEL:-BAAI/bce-reranker-base-zh}
+  RERANK_API_BASE: ${RERANK_API_BASE:-}
+  RERANK_API_KEY: ${RERANK_API_KEY:-}
+  RERANK_TIMEOUT_S: ${RERANK_TIMEOUT_S:-30}
+  LLM_BACKEND: ${LLM_BACKEND:-remote}
+  LLM_MODEL: ${LLM_MODEL:-qwen2.5-72b-instruct}
+  LLM_API_BASE: ${LLM_API_BASE:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
+  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-120}
+  CHUNK_SIZE: ${CHUNK_SIZE:-512}
+  CHUNK_OVERLAP: ${CHUNK_OVERLAP:-60}
+  RETRIEVE_TOP_K: ${RETRIEVE_TOP_K:-20}
+  RERANK_TOP_N: ${RERANK_TOP_N:-6}
+  RRF_K: ${RRF_K:-60}
+
+services:
+  # ---------------------------------------------------------------- 基础设施
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - etcd_data:/etcd
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    restart: unless-stopped
+    command: server -s3 -s3.port=8333 -dir=/data
+    volumes:
+      - seaweed_data:/data
+
+  milvus:
+    image: milvusdb/milvus:v2.4.9
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: seaweedfs:8333
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    depends_on:
+      etcd:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    volumes:
+      - milvus_data:/var/lib/milvus
+
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - redis_data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+      POSTGRES_DB: ${POSTGRES_DB:-rag}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DB:-rag}"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  # ---------------------------------------------------------------- 应用
+  migrate:
+    build: .
+    image: enterprise-rag:latest
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    image: enterprise-rag:latest
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    environment: *app-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./configs/kbs:/srv/rag/configs/kbs
+      - ./logs:/srv/rag/logs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  worker:
+    build: .
+    image: enterprise-rag:latest
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    environment: *app-env
+    volumes:
+      - ./configs/kbs:/srv/rag/configs/kbs
+      - ./logs:/srv/rag/logs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  beat:
+    build: .
+    image: enterprise-rag:latest
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app", "beat", "--loglevel=INFO"]
+    environment: *app-env
+    volumes:
+      - ./configs/kbs:/srv/rag/configs/kbs
+      - ./logs:/srv/rag/logs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+volumes:
+  etcd_data:
+  seaweed_data:
+  milvus_data:
+  es_data:
+  redis_data:
+  pg_data:

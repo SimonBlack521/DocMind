@@ -1,0 +1,72 @@
+# RAG API 服务：FastAPI + Uvicorn
+#
+# 资源保守起步（2 核 / 4G），根据压测结果再调 QPS 与并发。
+# liveness / readiness 探针走应用内 endpoint，不走容器层。
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+  namespace: rag
+  labels:
+    app: rag-api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: rag-api
+  template:
+    metadata:
+      labels:
+        app: rag-api
+    spec:
+      containers:
+        - name: api
+          image: enterprise-rag:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "uvicorn", "app.main:app"]
+          args: ["--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: rag-config
+            - secretRef:
+                name: rag-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-api
+  namespace: rag
+spec:
+  selector:
+    app: rag-api
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP

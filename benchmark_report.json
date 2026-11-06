@@ -1,0 +1,80 @@
+{
+  "generated_at": "2026-11-05 08:29:35",
+  "milvus_uri": "http://127.0.0.1:19530",
+  "collection": "rag_bench_1m",
+  "dim": 1024,
+  "metric": "COSINE",
+  "hnsw_params": {
+    "M": 16,
+    "efConstruction": 200,
+    "efSearch": 64
+  },
+  "golden_queries_total": 200,
+  "top_k": 10,
+  "stages": [
+    {
+      "stage": 10000,
+      "row_count": 10000,
+      "segment_count": -1,
+      "disk_mb": 747.25,
+      "recall_at_1": 0.395,
+      "recall_at_5": 0.484,
+      "recall_at_10": 0.242,
+      "p50_ms": 3.7,
+      "p95_ms": 5.3,
+      "p99_ms": 7.7,
+      "concurrency_qps": 903.3,
+      "concurrency_p95_ms": 14.4,
+      "notes": []
+    },
+    {
+      "stage": 100000,
+      "row_count": 100000,
+      "segment_count": -1,
+      "disk_mb": 1101.89,
+      "recall_at_1": 0.3,
+      "recall_at_5": 0.136,
+      "recall_at_10": 0.068,
+      "p50_ms": 10.5,
+      "p95_ms": 14.5,
+      "p99_ms": 18.2,
+      "concurrency_qps": 369.7,
+      "concurrency_p95_ms": 31.2,
+      "notes": []
+    },
+    {
+      "stage": 500000,
+      "row_count": 500000,
+      "segment_count": -1,
+      "disk_mb": 2766.09,
+      "recall_at_1": 0.0,
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "p50_ms": 13.1,
+      "p95_ms": 20.7,
+      "p99_ms": 45.8,
+      "concurrency_qps": 124.1,
+      "concurrency_p95_ms": 86.1,
+      "notes": [
+        "exact recall skipped (too slow at this scale)"
+      ]
+    },
+    {
+      "stage": 1000000,
+      "row_count": 1000000,
+      "segment_count": -1,
+      "disk_mb": 4645.15,
+      "recall_at_1": 0.0,
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "p50_ms": 23.3,
+      "p95_ms": 53.6,
+      "p99_ms": 129.6,
+      "concurrency_qps": 58.3,
+      "concurrency_p95_ms": 296.9,
+      "notes": [
+        "exact recall skipped (too slow at this scale)"
+      ]
+    }
+  ]
+}

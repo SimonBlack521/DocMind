@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-test:
+    name: Lint + Type Check + Test (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: python -m ruff check app tests scripts
+
+      - name: Pyright type check
+        run: python -m pyright app
+
+      - name: Pytest
+        run: python -m pytest tests -q
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    # 只在 main 分支 push 时构建镜像，PR 跳过节省时间
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: lint-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false  # 生产仓库配好 registry 后改成 true + login
+          tags: enterprise-rag:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

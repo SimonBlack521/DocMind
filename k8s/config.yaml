@@ -1,0 +1,57 @@
+# Enterprise RAG 配置与密钥
+#
+# 生产部署时：把 Secret 条目逐个替换为真实值（或从 Vault / ExternalSecret 注入），
+# ConfigMap 保留非敏感默认。依赖（Milvus/ES/PG/Redis/SeaweedFS）默认走托管服务地址，
+# 需要自建时把对应 endpoint 改成 Service FQDN。
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+  namespace: rag
+data:
+  APP_ENV: "prod"
+  AUTH_MODE: "oidc"
+  LOG_LEVEL: "INFO"
+
+  # 依赖托管服务占位 —— 替换为真实地址
+  DATABASE_URL: "postgresql+asyncpg://rag:rag@pg.managed.svc.cluster.local:5432/rag"
+  REDIS_URL: "redis://redis.managed.svc.cluster.local:6379/0"
+  MILVUS_URI: "http://milvus.managed.svc.cluster.local:19530"
+  ES_URL: "http://es.managed.svc.cluster.local:9200"
+  S3_ENDPOINT_URL: "http://seaweedfs.managed.svc.cluster.local:9000"
+
+  # 模型降级：远程 API 优先 → 本地 CUDA → CPU
+  MODEL_DEVICE_PREFERENCE: "remote,cuda,cpu"
+  RERANK_BACKEND: "ollama"
+  RERANK_OLLAMA_BASE: "http://ollama.ollama.svc.cluster.local:11434"
+
+  # 频率限制（生产开启）
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_CHAT_RPM: "30"
+  RATE_LIMIT_UPLOAD_RPM: "5"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-secrets
+  namespace: rag
+type: Opaque
+stringData:
+  # OIDC —— 替换为企业 IdP 真实值
+  OIDC_ISSUER: "https://idp.example.com/realms/enterprise"
+  OIDC_AUDIENCE: "enterprise-rag"
+  OIDC_JWKS_URL: "https://idp.example.com/realms/enterprise/protocol/openid-connect/certs"
+
+  # LLM / Embedding API Key
+  LLM_API_KEY: "REPLACE_ME"
+  EMBEDDING_API_KEY: "REPLACE_ME"
+
+  # S3 / SeaweedFS 凭证
+  S3_ACCESS_KEY: "REPLACE_ME"
+  S3_SECRET_KEY: "REPLACE_ME"
+
+  # Milvus token（有鉴权时需要）
+  MILVUS_TOKEN: ""
+  ES_USERNAME: ""
+  ES_PASSWORD: ""

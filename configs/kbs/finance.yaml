@@ -1,0 +1,40 @@
+# 财务业务线知识库示例配置
+kb_id: kb-finance-001
+kb_code: finance
+name: 财务知识库
+description: 财务制度、报销流程、税务政策等内部资料
+# 前端欢迎页示例问题：只做界面引导，不参与检索；留空则前端显示通用提示
+sample_questions:
+  - 差旅住宿的报销标准是多少？
+  - 报销申请需要在多少天内提交？
+  - 增值税专用发票的认证流程是什么？
+  - 出差可以选择哪些交通工具？
+tenant_id: default
+
+chunking:
+  size: 512
+  overlap: 60
+  min_chunk_len: 20
+  # 结构感知 + 父子切片：命中子块后按 parent_chunk_id 回取整节内容送生成
+  structure_aware: true
+  parent_child: true
+  parent_max_chars: 1500
+
+retrieval:
+  top_k: 20
+  rerank_top_n: 6
+  rrf_k: 60
+  vector_weight: 0.5
+  bm25_weight: 0.5
+  use_query_rewrite: true
+  use_rerank: true
+  # 自适应召回：简单问题缩小候选池、多跳问题放大；分数断层处提前停止
+  adaptive_top_k: true
+  top_k_min: 8
+  top_k_max: 40
+  score_cliff_ratio: 0.0  # 断层早停默认关闭（清单第 15 项：未经评测验证前不启用）
+  # MMR 多样性：1.0=关闭；0.8 在保证相关性的前提下避免 Top-N 全来自同一段
+  mmr_lambda: 0.8
+
+doc_acl_enabled: false
+enabled: true

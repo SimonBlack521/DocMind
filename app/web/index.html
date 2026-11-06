@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>企业知识库问答</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">RAG</span>
+    <span class="title">企业知识库问答</span>
+    <button id="sidebar-toggle" class="ghost-btn small" title="收起 / 展开左侧文档管理">文档管理</button>
+  </div>
+  <div class="topbar-right">
+    <label class="kb-picker">
+      知识库
+      <select id="kb-select"></select>
+    </label>
+    <span id="health-dot" class="dot" title="服务健康状态"></span>
+    <button id="settings-btn" class="ghost-btn" title="访问令牌设置">设置</button>
+  </div>
+</header>
+
+<div id="settings-panel" class="settings-panel hidden">
+  <div class="settings-card">
+    <h3>访问设置</h3>
+    <p class="hint">dev 鉴权模式无需令牌；OIDC 模式请粘贴 IdP 签发的 access token（仅保存在本浏览器）。</p>
+    <input id="token-input" type="password" placeholder="Bearer Token（可选）" autocomplete="off">
+    <div class="row">
+      <button id="token-save" class="primary-btn">保存</button>
+      <button id="token-clear" class="ghost-btn">清除</button>
+      <button id="settings-close" class="ghost-btn">关闭</button>
+    </div>
+  </div>
+</div>
+
+<main class="layout">
+  <aside class="sidebar">
+    <div class="panel-head">
+      <h2>文档管理</h2>
+      <button id="refresh-docs" class="ghost-btn small" title="刷新列表">刷新</button>
+    </div>
+    <form id="upload-form" class="upload-form">
+      <input id="upload-file" type="file" required>
+      <input id="upload-title" type="text" placeholder="标题（留空用文件名）">
+      <input id="upload-acl" type="text" placeholder="可见组（逗号分隔，留空公开）">
+      <button type="submit" class="primary-btn">上传入库</button>
+      <div id="upload-result" class="upload-result"></div>
+    </form>
+    <div class="panel-head sub">
+      <span id="doc-total">共 0 篇</span>
+      <select id="doc-status-filter">
+        <option value="">全部状态</option>
+        <option value="ready">ready</option>
+        <option value="ingesting">ingesting</option>
+        <option value="failed">failed</option>
+        <option value="quarantined">quarantined</option>
+        <option value="duplicate">duplicate</option>
+      </select>
+    </div>
+    <ul id="doc-list" class="doc-list"></ul>
+    <div class="pager">
+      <button id="doc-prev" class="ghost-btn small">上一页</button>
+      <span id="doc-page">1</span>
+      <button id="doc-next" class="ghost-btn small">下一页</button>
+    </div>
+  </aside>
+
+  <section class="chat">
+    <div class="chat-toolbar">
+      <div class="chat-scope">
+        <strong id="chat-kb-name">—</strong>
+        <span id="chat-kb-desc" class="hint"></span>
+      </div>
+      <button id="new-chat" class="ghost-btn small" title="清空当前对话，开始新一轮">新对话</button>
+    </div>
+
+    <div id="welcome" class="welcome">
+      <h2>不知道怎么问？从这些开始</h2>
+      <div id="sample-questions" class="sample-list"></div>
+      <p class="hint">
+        系统只依据所选知识库中的资料作答：答案里的 [n] 可点击查看原文片段；
+        无法被资料支持的结论会标注「未验证」，完全无依据时会直接拒答。
+      </p>
+    </div>
+
+    <ul id="messages" class="messages"></ul>
+    <form id="chat-form" class="chat-form">
+      <div class="chat-mode">
+        <label title="按问题语义自动选择文档检索或结构化查询"><input type="radio" name="mode" value="auto" checked> 自动路由</label>
+        <label><input type="radio" name="mode" value="document"> 文档检索</label>
+        <label title="仅对开启 structured 的知识库生效"><input type="radio" name="mode" value="structured"> 结构化查询</label>
+      </div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" rows="2" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+        <button type="submit" id="chat-send" class="primary-btn">发送</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
